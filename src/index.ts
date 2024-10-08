@@ -1,4 +1,4 @@
-import { Context, Schema, SessionError } from 'koishi'
+import { Context, Schema } from 'koishi'
 import format from 'pretty-format'
 
 export const name = 'w-debug'
@@ -12,6 +12,8 @@ const select = <T, const Ks extends Array<keyof T>>(value: T, keys: Ks): {
 } => Object.fromEntries(keys.map(key => [ key, value[key] ])) as any
 
 export function apply(ctx: Context) {
+    ctx.command('debug', '调试')
+
     ctx.command('debug.session')
         .action(({ session }) => JSON.stringify(session, null, 2))
 
@@ -28,10 +30,17 @@ export function apply(ctx: Context) {
     ctx.command('debug.arg0 <arg0>')
         .action((_, arg0) => arg0)
 
+    ctx.command('debug.quote')
+        .action(({ session }) => session.quote?.content || '[No quote]')
+
     ctx.command('debug.eval <code:text>', { authority: 4 })
-        .action(async (_, code) => {
+        .option('return', '-r')
+        .action(async (argv, code) => {
             try {
-                return format(await eval(code))
+                const result = await eval(code)
+                return argv.options.return
+                    ? result
+                    : format(result)
             }
             catch (error) {
                 return format(error)
