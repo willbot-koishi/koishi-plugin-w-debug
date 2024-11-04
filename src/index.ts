@@ -1,7 +1,11 @@
-import { Context, Schema } from 'koishi'
+import { Context, Schema, $, h } from 'koishi'
 import format from 'pretty-format'
 
 export const name = 'w-debug'
+
+export const inject = {
+    optional: [ 'database', 'http' ]
+}
 
 export interface Config {}
 
@@ -33,18 +37,37 @@ export function apply(ctx: Context) {
     ctx.command('debug.quote')
         .action(({ session }) => session.quote?.content || '[No quote]')
 
+    const AsyncFunction = (async function () {}).constructor as typeof Function
+
     ctx.command('debug.eval <code:text>', { authority: 4 })
+        .alias('~')
         .option('return', '-r')
+        .option('inject', '-i <inject:string>')
         .action(async (argv, code) => {
+            if (! code.includes('return')) code = `return (${code})` 
+            if (argv.options.inject) {
+                const deps = argv.options.inject.split(',')
+                code = `ctx.inject(${ JSON.stringify(deps) }, ctx => {${code}})`
+            }
             try {
-                const result = await eval(code)
+                const env = new Proxy({ require, ctx: ctx.root, db: ctx.database, argv, h, $, __dirname, __filename }, {
+                    has: () => true,
+                    get: (target, key) => {
+                        if (key === Symbol.unscopables) return {}
+                        if (key in target) return target[key]
+                        if (key in global) return global[key]
+                        throw new ReferenceError(`${String(key)} is not defined`)
+                    }
+                })
+                code = `with (env) {${code}}`
+                const result = await new AsyncFunction('env', code)(env)
                 return argv.options.return
                     ? result
                     : format(result)
             }
-            catch (error) {
-                return format(error)
+            catch (err) {
+                ctx.logger.error(err)
+                return err instanceof Error ? err.stack : String(err)
             }
         })
 }
-
